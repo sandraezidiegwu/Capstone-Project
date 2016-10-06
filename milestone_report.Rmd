@@ -1,0 +1,144 @@
+---
+title: 'Milestone Report: Exploratory Analysis'
+author: "Sandra Ezidiegwu"
+date: "September 2, 2016"
+output: html_document
+---
+
+# Introduction
+This is the milestone report for the Exploratory Analysis section of the Coursera Data Science Capstone project. The goal of this capstone project is to analyze a large corpus of text documents to discover the structure in the data and how words are put together. By cleaning and analyzing text data, I will then build a predictive text model.
+
+This report will summarize the findings from the exploratory analysis carried out on data for the capstone project. I have included some major statistical findings and you will find below, graphs that are representative of the data set of words. 
+
+```{r message=FALSE}
+library(R.utils)
+library(stringi)
+library(ggplot2)
+library(ngram)
+library(tm)
+library(RWeka)
+library(tau)
+library(wordcloud)
+```
+
+## Data Processing
+### Loading the Dataset
+```{r warning=FALSE}
+setwd("/Users/sandraezidiegwu/Documents/Data Science/Capstone Project/final/en_US/")
+swiftkey <- "https://d396qusza40orc.cloudfront.net/dsscapstone/dataset/Coursera-SwiftKey.zip"
+download.file(swiftkey, destfile = "./SwiftKey", method = "curl")
+unzip("SwiftKey")
+
+blog <- readLines("en_US.blogs.txt", encoding = "UTF-8")
+news <- readLines("en_US.news.txt", encoding = "UTF-8")
+twitter <- readLines("en_US.twitter.txt", encoding = "UTF-8")
+```
+
+### Sample Data Collection
+To reduce processing time, we will grab samples of the data.
+```{r}
+set.seed(124)
+blog.s <- sample(blog, 1000)
+news.s <- sample(news, 1000)
+twitter.s <- sample(twitter, 1000)
+```
+
+### Combine Blog/News/Twitter Word Samples into 1 File
+```{r}
+words <- c(blog.s, news.s, twitter.s)
+write(words, file = 'words.txt')
+words <- readLines("words.txt")
+```
+
+## Summary Statistics
+```{r echo=FALSE}
+blogLines <- countLines("en_US.blogs.txt")
+newsLines <- countLines("en_US.news.txt")
+twitterLines <- countLines("en_US.twitter.txt")
+sampleLines <- countLines('words.txt')
+
+blogSize <- object.size(blog)/1024^2
+newsSize <- object.size(news)/1024^2
+twitterSize <- object.size(twitter)/1024^2
+sampleSize <- object.size(words)/1024^2
+
+blogWords <- wordcount(blog)
+newsWords <- wordcount(news)
+twitterWords <- wordcount(twitter)
+sampleWords <- wordcount(words)
+
+fileSummary <- data.frame(fileName = c("Blogs","News","Twitter", "Sample Summary"), fileSize = c(round(blogSize, digits = 2), round(newsSize,digits = 2), round(twitterSize, digits = 2), round(sampleSize, digits = 2)), lineCount = c(blogLines, newsLines, twitterLines, sampleLines), wordCount = c(blogWords, newsWords, twitterWords, sampleWords))
+
+colnames(fileSummary) <- c("File Name", "File Size (mb)", "Line Count", "Word Count")
+
+saveRDS(fileSummary, file = "/Users/sandraezidiegwu/Documents/Data Science/Capstone Project/final/en_US/fileSummary.Rda")
+fileSummaryDF <- readRDS("/Users/sandraezidiegwu/Documents/Data Science/Capstone Project/final/en_US/fileSummary.Rda")
+fileSummaryDF
+```
+
+### Summary Statistics Visualization
+```{r echo = FALSE}
+par(mfrow = c(1,3), cex.main = 0.6)
+hist(stri_count_words(blog), breaks=50,xlim=c(0,500), col = "lightblue", border="black", xlab = 'Word Strings Count', main = 'Distribution of Words: Blog')
+hist(stri_count_words(news), xlim=c(0,250), col = "lightblue", border="black", xlab = 'Word Strings Count', main = 'Distribution of Words: News')
+hist(stri_count_words(twitter), col = "lightblue", border="black", xlab = 'Word Strings Count', main = 'Distribution of Words: Twitter')
+```
+
+## Text Corpus and Cleaning
+```{r message=FALSE, warning=FALSE}
+words <- gsub("http.*\\s*", "", words)
+words <- gsub("[[:punct:]]", "", words)
+words <- gsub("[[:digit:]]", "", words)
+words <- gsub("http[[:alnum:]]*", "", words)
+words <- gsub("^\\s+|\\s+$", " ", words)
+
+#Convert to Lower Case
+words <- tolower(words)
+
+#Remove Stopwords
+words <- removeWords(words, stopwords(kind = "en"))
+
+#Remove Profanity
+words.profanity <- readLines("profanity.csv")
+words <- removeWords(words, words.profanity)
+
+#Create Corpus
+words.corpus <- Corpus(VectorSource(words), readerControl = list(reader =  readPlain, language = 'en'))
+```
+
+### Tokenization
+Using the 'tau' package, I will create functions that tokenize the text into unigrams, bigrams and trigrams
+```{r}
+unigramtoken <- function(x, n=1) return(rownames(as.data.frame(unclass(textcnt(x$content,method="string",n=n)))))
+bigramtoken <- function(x, n=2) return(rownames(as.data.frame(unclass(textcnt(x$content,method="string",n=n)))))
+trigramtoken <- function(x, n=3) return(rownames(as.data.frame(unclass(textcnt(x$content,method="string",n=n)))))
+```
+
+### Top 10 Unigrams/Bigrams/Trigrams
+```{r}
+tdm.unigram <- TermDocumentMatrix(words.corpus, control=list(tokenize=unigramtoken))
+freq1 <- sort(rowSums(as.matrix(tdm.unigram)), decreasing = T)
+freq.df1 <- data.frame(word=names(freq1), freq=freq1)
+head(freq.df1, 10)
+
+tdm.bigram <- TermDocumentMatrix(words.corpus, control=list(tokenize=bigramtoken))
+freq2 <- sort(rowSums(as.matrix(tdm.bigram)), decreasing = T)
+freq.df2 <- data.frame(word=names(freq2), freq=freq2)
+head(freq.df2, 10)
+
+tdm.trigram <- TermDocumentMatrix(words.corpus, control=list(tokenize=trigramtoken))
+freq3 <- sort(rowSums(as.matrix(tdm.trigram)), decreasing = T)
+freq.df3 <- data.frame(word=names(freq3), freq=freq3)
+head(freq.df3, 10)
+```
+
+Wordcloud of most frequent words used in dataset
+```{r}
+wordcloud(freq.df1$word, freq.df1$freq, scale = c(4,0.8), max.words = 40, random.order = F, random.color = TRUE, colors = brewer.pal(8,'Dark2'))
+```
+
+## Findings and Further Work
+- The twitter words string count vary differently from the news and blogs dues to the 140 character limitations set my twitter for each post.
+- Data processing is terribly slow due to the size of the word files. It was necessary to reduce the size by taking samples.
+- The lack of stopwords are needed for accurate prediction, in my following work, I will include stopwords.
+- The next step would be building a prediction algorithm for my application.
